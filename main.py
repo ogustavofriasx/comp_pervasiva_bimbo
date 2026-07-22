@@ -55,6 +55,10 @@ AMBIENT_DURATION = 0.5
 PHRASE_TIMEOUT = 5
 WAKE_PAUSE = 0.3
 
+# Thresholds para o chatbot (frases longas descrevendo reuniões)
+CHAT_PAUSE_THRESHOLD = 1.2   # pausa maior = não corta no meio da fala
+CHAT_PHRASE_TIME_LIMIT = 15  # até 15s de fala contínua
+
 
 def _contains_wake_word(transcripts):
     """Verifica se alguma transcrição contém a wake word ou variantes."""
@@ -130,13 +134,16 @@ def main():
             client = _get_openai_client()
 
             # ── Loop do chatbot ──
+            # Aumenta a pausa pra não cortar frases longas
+            recognizer.pause_threshold = CHAT_PAUSE_THRESHOLD
+
             while True:
                 print("Estou ouvindo...")
                 try:
                     audio = recognizer.listen(
                         source,
                         timeout=PHRASE_TIMEOUT,
-                        phrase_time_limit=8,
+                        phrase_time_limit=CHAT_PHRASE_TIME_LIMIT,
                     )
                 except sr.WaitTimeoutError:
                     print("Bimbo: Não ouvi nada. Ainda está aí?")
@@ -161,6 +168,9 @@ def main():
 
                 if should_exit:
                     break
+
+            # Restaura threshold curto pra detecção da wake word
+            recognizer.pause_threshold = 0.5
 
             print("Chatbot encerrado. Diga 'oi bimbo' para ativar novamente.")
 
