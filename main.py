@@ -10,9 +10,6 @@ from zoneinfo import ZoneInfo
 
 
 # ─── Filtro de ruído ALSA/JACK/PortAudio ──────────────────────────
-# Bibliotecas C (libasound, PortAudio, JACK) escrevem warnings direto
-# no file descriptor 2, bypassando sys.stderr. Redirecionamos o fd 2
-# via pipe e filtramos em thread.
 _NOISE_PATTERN = re.compile(
     r"(ALSA lib|Cannot connect to server|jack server|JackShmReadWrite|"
     r"capture slave|unable to open slave|Unknown PCM|"
@@ -24,12 +21,11 @@ _NOISE_PATTERN = re.compile(
 
 _original_stderr_fd = os.dup(2)
 _pipe_read, _pipe_write = os.pipe()
-os.dup2(_pipe_write, 2)  # redireciona fd 2 para o pipe
+os.dup2(_pipe_write, 2)
 os.close(_pipe_write)
 
 
 def _filter_stderr():
-    """Lê do pipe e escreve no stderr original apenas linhas não-ruidosas."""
     buf = b""
     while True:
         try:
@@ -49,69 +45,96 @@ def _filter_stderr():
 _stderr_thread = threading.Thread(target=_filter_stderr, daemon=True)
 _stderr_thread.start()
 
-# ─── Imports de áudio (emitem ruído C na inicialização) ───────────
+# ─── Imports de áudio ─────────────────────────────────────────────
 import speech_recognition as sr
 from openai import OpenAI
 
 from google_calendar import create_event
 
+# ─── Constantes ───────────────────────────────────────────────────
+WAKE_WORD = "oi bimbo"
+AMBIENT_DURATION = 0.5       # segundos para calibrar ruído ambiente
+PHRASE_TIMEOUT = 5           # tempo máximo de escuta por iteração
+WAKE_PAUSE = 0.3             # pausa após wake word antes de capturar comando
 
-def openai_client():
+
+def _get_openai_client():
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Defina a variável de ambiente OPENAI_API_KEY.")
     return OpenAI(api_key=api_key)
 
 
-def listen_mic():
-    mic = sr.Recognizer()
+def main():
+    recognizer = sr.Recognizer()
+    recognizer.energy_threshold = 300   # sensibilidade base (ajustável)
+    recognizer.dynamic_energy_threshold = True
+    recognizer.pause_threshold = 0.8    # pausa pra considerar fim da fala
 
+    # Abre o microfone UMA vez e reutiliza
     with sr.Microphone() as source:
-        print("Estou ouvindo...")
-        mic.adjust_for_ambient_noise(source)
-        audio = mic.listen(source)
+        # Calibra ruído ambiente uma única vez
+        print("Calibrando ruído ambiente...")
+        recognizer.adjust_for_ambient_noise(source, duration=AMBIENT_DURATION)
+        print(f"Pronto. Energia base: {recognizer.energy_threshold:.0f}")
 
-    try:
-        return mic.recognize_google(audio, language="pt-BR")
-    except sr.UnknownValueError:
-        print("Não entendi o que você disse.")
-        return None
-    except sr.RequestError as error:
-        print("Falha no serviço de reconhecimento:", error)
-        return None
+        # ── Loop de espera pela wake word ──
+        while True:
+            print("Estou ouvindo...")
+            try:
+                audio = recognizer.listen(
+                    source,
+                    timeout=PHRASE_TIMEOUT,
+                    phrase_time_limit=3,
+                )
+                text = recognizer.recognize_google(audio, language="pt-BR")
+            except sr.WaitTimeoutError:
+                continue
+            except sr.UnknownValueError:
+                continue
+            except sr.RequestError as e:
+                print("Falha no serviço de reconhecimento:", e)
+                continue
 
+            if text.casefold().rstrip(".!?") == WAKE_WORD:
+                break
 
-def building_command():
-    client = openai_client()
-    mic = sr.Recognizer()
+        # ── Wake word detectada ──
+        print("Comando de ativação detectado")
+        time.sleep(WAKE_PAUSE)
 
-    # Pequena pausa para o usuário começar a falar o comando
-    time.sleep(0.5)
-
-    with sr.Microphone() as source:
+        # ── Captura o comando (reutiliza mesmo mic) ──
         print("Pode falar o comando...")
-        mic.adjust_for_ambient_noise(source)
-        audio = mic.listen(source)
+        try:
+            audio = recognizer.listen(
+                source,
+                timeout=PHRASE_TIMEOUT,
+                phrase_time_limit=5,
+            )
+        except sr.WaitTimeoutError:
+            print("Nenhum comando detectado (timeout).")
+            return
 
-    audio_file = io.BytesIO(audio.get_wav_data())
-    audio_file.name = "comando.wav"
+        # Transcreve com Whisper
+        client = _get_openai_client()
+        audio_file = io.BytesIO(audio.get_wav_data())
+        audio_file.name = "comando.wav"
 
-    transcription = client.audio.transcriptions.create(
-        model="gpt-4o-mini-transcribe",
-        file=audio_file,
-        language="pt",
-    )
+        transcription = client.audio.transcriptions.create(
+            model="gpt-4o-mini-transcribe",
+            file=audio_file,
+            language="pt",
+        )
+        texto = transcription.text
+        print("Comando:", texto)
 
-    texto = transcription.text
-    print("Comando:", texto)
-    execute_command(texto)
+        _execute_command(client, texto)
 
 
-def execute_command(command):
-    client = openai_client()
+def _execute_command(client, command):
     now = datetime.now(ZoneInfo("America/Sao_Paulo"))
 
-    input_text = f"""
+    prompt = f"""
     Analise o comando abaixo e retorne somente um JSON válido.
 
     Data e hora atuais:
@@ -136,7 +159,6 @@ def execute_command(command):
       retorne um JSON com "summary": "ininteligível" e "missingFields": ["comando"].
 
     Formato esperado:
-
     {{
         "summary": "Título do evento",
         "description": "Descrição do evento",
@@ -154,7 +176,7 @@ def execute_command(command):
 
     response = client.responses.create(
         model=os.environ.get("OPENAI_TEXT_MODEL", "gpt-5.6-luna"),
-        input=input_text,
+        input=prompt,
     )
 
     print("Resposta bruta:", response.output_text)
@@ -166,7 +188,6 @@ def execute_command(command):
         print("Erro:", error)
         return
 
-    # Valida se o evento tem os campos obrigatórios
     missing = event_data.get("missingFields", [])
     if missing:
         print(f"Comando incompleto — campos ausentes: {missing}")
@@ -175,23 +196,13 @@ def execute_command(command):
 
     start = event_data.get("start", {})
     if not start.get("dateTime"):
-        print("Evento sem data/hora — ignorado. Fale novamente.")
+        print("Evento sem data/hora — ignorado.")
         return
 
     try:
         create_event(event_data)
     except Exception as error:
         print("Erro ao criar evento no Google Calendar:", error)
-
-
-def main():
-    while True:
-        activate_command = listen_mic()
-        if activate_command and activate_command.casefold().rstrip(".!?") == "oi bimbo":
-            break
-
-    print("Comando de ativação detectado")
-    building_command()
 
 
 if __name__ == "__main__":
