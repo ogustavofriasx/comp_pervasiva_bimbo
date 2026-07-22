@@ -5,3 +5,4 @@ audios
 *.json
 
 .env
+.DS_Store
