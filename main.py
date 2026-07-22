@@ -3,43 +3,51 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
 # ─── Filtro de ruído ALSA/JACK/PortAudio ──────────────────────────
-# As bibliotecas de áudio emitem warnings no stderr via C (libasound,
-# PortAudio, JACK). Esse filtro remove essas linhas sem afetar
-# mensagens reais de erro do Python.
+# Bibliotecas C (libasound, PortAudio, JACK) escrevem warnings direto
+# no file descriptor 2, bypassando sys.stderr. Redirecionamos o fd 2
+# via pipe e filtramos em thread.
 _NOISE_PATTERN = re.compile(
     r"(ALSA lib|Cannot connect to server|jack server|JackShmReadWrite|"
     r"capture slave|unable to open slave|Unknown PCM|"
     r"Unable to find definition|Evaluate error|"
     r"snd_func_refer|snd_config_expand|snd_pcm_open_noupdate|"
-    r"snd_pcm_asym_open|snd_pcm_dmix_open)"
+    r"snd_pcm_asym_open|snd_pcm_dmix_open|snd_ctl_open_noupdate|"
+    r"Invalid CTL)"
 )
 
-
-class _NoiseFilter:
-    """Wrapper que filtra ruído de áudio do stderr."""
-
-    def __init__(self, stream):
-        self._stream = stream
-
-    def write(self, text):
-        if not _NOISE_PATTERN.search(text):
-            return self._stream.write(text)
-        return len(text)
-
-    def flush(self):
-        self._stream.flush()
-
-    def __getattr__(self, name):
-        return getattr(self._stream, name)
+_original_stderr_fd = os.dup(2)
+_pipe_read, _pipe_write = os.pipe()
+os.dup2(_pipe_write, 2)  # redireciona fd 2 para o pipe
+os.close(_pipe_write)
 
 
-sys.stderr = _NoiseFilter(sys.stderr)
+def _filter_stderr():
+    """Lê do pipe e escreve no stderr original apenas linhas não-ruidosas."""
+    buf = b""
+    while True:
+        try:
+            data = os.read(_pipe_read, 4096)
+            if not data:
+                break
+            buf += data
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                text = line.decode(errors="replace")
+                if not _NOISE_PATTERN.search(text):
+                    os.write(_original_stderr_fd, (text + "\n").encode())
+        except (OSError, ValueError):
+            break
+
+
+_stderr_thread = threading.Thread(target=_filter_stderr, daemon=True)
+_stderr_thread.start()
 
 # ─── Imports de áudio (emitem ruído C na inicialização) ───────────
 import speech_recognition as sr
