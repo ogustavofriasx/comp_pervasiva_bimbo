@@ -1,0 +1,12 @@
+services:
+  assistente:
+    build: .
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Defina OPENAI_API_KEY no arquivo .env}
+      OPENAI_TEXT_MODEL: ${OPENAI_TEXT_MODEL:-gpt-5.6-luna}
+    devices:
+      - /dev/snd:/dev/snd
+    volumes:
+      - ./credentials.json:/run/secrets/google_credentials.json:ro
+      - ./token.json:/data/token.json

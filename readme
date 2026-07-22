@@ -1,0 +1,50 @@
+# Assistente de voz no Raspberry Pi
+
+## Requisitos
+
+- Raspberry Pi OS 64-bit (recomendado)
+- Docker com o plugin Compose
+- Microfone reconhecido pelo host em `/dev/snd`
+- `credentials.json` e `token.json` válidos do Google Calendar
+- Uma chave da API da OpenAI
+
+## Configuração
+
+1. Copie `.env.example` para `.env`.
+2. Informe a nova chave em `OPENAI_API_KEY`.
+3. Coloque `credentials.json` e `token.json` na raiz do projeto.
+
+O `token.json` deve ser autorizado antes da execução no contêiner. O fluxo de
+autorização inicial abre um navegador local; por isso, o caminho mais simples é
+executar o projeto uma vez fora do Docker para gerar o token e depois copiá-lo
+para o Raspberry Pi.
+
+## Execução
+
+```sh
+docker compose up --build -d
+docker compose logs -f assistente
+```
+
+Para parar:
+
+```sh
+docker compose down
+```
+
+## Diagnóstico de áudio no Raspberry Pi
+
+Confirme primeiro que o microfone aparece no host:
+
+```sh
+arecord -l
+```
+
+O Compose repassa `/dev/snd` ao contêiner. Se houver mais de um dispositivo de
+captura, poderá ser necessário selecionar explicitamente o índice do microfone
+no código.
+
+## Segurança
+
+Nunca inclua `.env`, `credentials.json` ou `token.json` na imagem ou no Git.
+A chave que estava escrita no código-fonte precisa ser revogada e substituída.
