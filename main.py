@@ -53,9 +53,22 @@ from google_calendar import create_event
 
 # ─── Constantes ───────────────────────────────────────────────────
 WAKE_WORD = "oi bimbo"
-AMBIENT_DURATION = 0.5       # segundos para calibrar ruído ambiente
-PHRASE_TIMEOUT = 5           # tempo máximo de escuta por iteração
-WAKE_PAUSE = 0.3             # pausa após wake word antes de capturar comando
+WAKE_KEYWORDS = ["bimbo", "bimbu", "bimba"]  # variantes aceitas
+AMBIENT_DURATION = 0.5
+PHRASE_TIMEOUT = 5
+WAKE_PAUSE = 0.3
+
+
+def _contains_wake_word(transcripts):
+    """Verifica se alguma transcrição contém a wake word ou variantes."""
+    for text in transcripts:
+        text = text.casefold().strip(".!? ")
+        if WAKE_WORD in text:
+            return True
+        for kw in WAKE_KEYWORDS:
+            if kw in text:
+                return True
+    return False
 
 
 def _get_openai_client():
@@ -67,18 +80,15 @@ def _get_openai_client():
 
 def main():
     recognizer = sr.Recognizer()
-    recognizer.energy_threshold = 300   # sensibilidade base (ajustável)
+    recognizer.energy_threshold = 300
     recognizer.dynamic_energy_threshold = True
-    recognizer.pause_threshold = 0.8    # pausa pra considerar fim da fala
+    recognizer.pause_threshold = 0.5    # menor = captura frases curtas melhor
 
-    # Abre o microfone UMA vez e reutiliza
     with sr.Microphone() as source:
-        # Calibra ruído ambiente uma única vez
         print("Calibrando ruído ambiente...")
         recognizer.adjust_for_ambient_noise(source, duration=AMBIENT_DURATION)
         print(f"Pronto. Energia base: {recognizer.energy_threshold:.0f}")
 
-        # ── Loop de espera pela wake word ──
         while True:
             print("Estou ouvindo...")
             try:
@@ -87,7 +97,23 @@ def main():
                     timeout=PHRASE_TIMEOUT,
                     phrase_time_limit=3,
                 )
-                text = recognizer.recognize_google(audio, language="pt-BR")
+                # Pede múltiplas hipóteses ao Google STT
+                result = recognizer.recognize_google(
+                    audio, language="pt-BR", show_all=True,
+                )
+                # result é um dict com "alternative": [{"transcript": ..., "confidence": ...}, ...]
+                # ou uma lista vazia / dict vazio se não reconhecer nada
+                transcripts = []
+                if isinstance(result, dict):
+                    for alt in result.get("alternative", []):
+                        t = alt.get("transcript", "")
+                        if t:
+                            transcripts.append(t)
+                elif isinstance(result, str):
+                    transcripts.append(result)
+
+                if transcripts:
+                    print(f"  Ouvido: {transcripts[0]}")
             except sr.WaitTimeoutError:
                 continue
             except sr.UnknownValueError:
@@ -96,7 +122,7 @@ def main():
                 print("Falha no serviço de reconhecimento:", e)
                 continue
 
-            if text.casefold().rstrip(".!?") == WAKE_WORD:
+            if _contains_wake_word(transcripts):
                 break
 
         # ── Wake word detectada ──
