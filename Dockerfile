@@ -16,7 +16,6 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=America/Sao_Paulo \
-    GOOGLE_CREDENTIALS_PATH=/run/secrets/google_credentials.json \
     GOOGLE_TOKEN_PATH=/data/token.json
 
 RUN apt-get update \
