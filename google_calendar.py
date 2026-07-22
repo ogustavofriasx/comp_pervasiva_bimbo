@@ -93,6 +93,15 @@ def get_calendar_service():
 
 
 def create_event(event):
+    # Validação: rejeita evento sem data/hora
+    start = event.get("start", {})
+    end = event.get("end", {})
+    if not start.get("dateTime") or not end.get("dateTime"):
+        raise ValueError(
+            "Evento sem data/hora definida. "
+            "Certifique-se de que o comando de voz incluiu data e horário."
+        )
+
     print("Evento:", event)
     service = get_calendar_service()
     created_event = service.events().insert(calendarId="primary", body=event).execute()

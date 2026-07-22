@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -39,8 +40,11 @@ def building_command():
     client = openai_client()
     mic = sr.Recognizer()
 
+    # Pequena pausa para o usuário começar a falar o comando
+    time.sleep(0.5)
+
     with sr.Microphone() as source:
-        print("Estou ouvindo...")
+        print("Pode falar o comando...")
         mic.adjust_for_ambient_noise(source)
         audio = mic.listen(source)
 
@@ -83,6 +87,8 @@ def execute_command(command):
     - Para informações ausentes, use null.
     - Use o fuso horário "America/Sao_Paulo".
     - Retorne somente JSON, sem Markdown ou explicações.
+    - IMPORTANTE: Se o comando não estiver em português ou for ininteligível,
+      retorne um JSON com "summary": "ininteligível" e "missingFields": ["comando"].
 
     Formato esperado:
 
@@ -110,21 +116,24 @@ def execute_command(command):
 
     try:
         event_data = json.loads(response.output_text)
-        create_event(event_data)
     except json.JSONDecodeError as error:
         print("O modelo não retornou um JSON válido.")
         print("Erro:", error)
+        return
 
+    # Valida se o evento tem os campos obrigatórios
+    missing = event_data.get("missingFields", [])
+    if missing:
+        print(f"Comando incompleto — campos ausentes: {missing}")
+        print("Diga o comando novamente com data e horário.")
+        return
 
-def main():
-    while True:
-        activate_command = listen_mic()
-        if activate_command and activate_command.casefold().rstrip(".!?") == "oi bimbo":
-            break
+    start = event_data.get("start", {})
+    if not start.get("dateTime"):
+        print("Evento sem data/hora — ignorado. Fale novamente.")
+        return
 
-    print("Comando de ativação detectado")
-    building_command()
-
-
-if __name__ == "__main__":
-    main()
+    try:
+        create_event(event_data)
+    except Exception as error:
+        print("Erro ao criar evento no Google Calendar:", error)
