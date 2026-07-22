@@ -2,11 +2,20 @@ services:
   assistente:
     build: .
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?Defina OPENAI_API_KEY no arquivo .env}
       OPENAI_TEXT_MODEL: ${OPENAI_TEXT_MODEL:-gpt-5.6-luna}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REFRESH_TOKEN: ${GOOGLE_REFRESH_TOKEN}
+      GOOGLE_ACCESS_TOKEN: ${GOOGLE_ACCESS_TOKEN:-}
+      GOOGLE_TOKEN_URI: ${GOOGLE_TOKEN_URI:-https://oauth2.googleapis.com/token}
+      GOOGLE_AUTH_URI: ${GOOGLE_AUTH_URI:-https://accounts.google.com/o/oauth2/auth}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost}
+      GOOGLE_TOKEN_PATH: ${GOOGLE_TOKEN_PATH:-token.json}
     devices:
       - /dev/snd:/dev/snd
     volumes:
-      - ./credentials.json:/run/secrets/google_credentials.json:ro
       - ./token.json:/data/token.json
