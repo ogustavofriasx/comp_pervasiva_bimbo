@@ -16,16 +16,11 @@ ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     TZ=America/Sao_Paulo \
-    GOOGLE_TOKEN_PATH=/data/token.json \
-    ALSA_CONFIG_PATH=/etc/asound.conf \
-    JACK_NO_AUDIO_RESERVATION=1
+    GOOGLE_TOKEN_PATH=/data/token.json
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates flac libasound2 libportaudio2 tzdata \
     && rm -rf /var/lib/apt/lists/*
-
-# Configuração ALSA mínima (suprime Unknown PCM warnings)
-COPY asound.conf /etc/asound.conf
 
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
