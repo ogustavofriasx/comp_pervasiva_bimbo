@@ -1,10 +1,47 @@
 import io
 import json
 import os
+import re
+import sys
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+
+# ─── Filtro de ruído ALSA/JACK/PortAudio ──────────────────────────
+# As bibliotecas de áudio emitem warnings no stderr via C (libasound,
+# PortAudio, JACK). Esse filtro remove essas linhas sem afetar
+# mensagens reais de erro do Python.
+_NOISE_PATTERN = re.compile(
+    r"(ALSA lib|Cannot connect to server|jack server|JackShmReadWrite|"
+    r"capture slave|unable to open slave|Unknown PCM|"
+    r"Unable to find definition|Evaluate error|"
+    r"snd_func_refer|snd_config_expand|snd_pcm_open_noupdate|"
+    r"snd_pcm_asym_open|snd_pcm_dmix_open)"
+)
+
+
+class _NoiseFilter:
+    """Wrapper que filtra ruído de áudio do stderr."""
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def write(self, text):
+        if not _NOISE_PATTERN.search(text):
+            return self._stream.write(text)
+        return len(text)
+
+    def flush(self):
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+sys.stderr = _NoiseFilter(sys.stderr)
+
+# ─── Imports de áudio (emitem ruído C na inicialização) ───────────
 import speech_recognition as sr
 from openai import OpenAI
 
@@ -137,3 +174,17 @@ def execute_command(command):
         create_event(event_data)
     except Exception as error:
         print("Erro ao criar evento no Google Calendar:", error)
+
+
+def main():
+    while True:
+        activate_command = listen_mic()
+        if activate_command and activate_command.casefold().rstrip(".!?") == "oi bimbo":
+            break
+
+    print("Comando de ativação detectado")
+    building_command()
+
+
+if __name__ == "__main__":
+    main()

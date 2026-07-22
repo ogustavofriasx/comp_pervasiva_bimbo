@@ -31,5 +31,4 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY main.py google_calendar.py ./
 
-# Filtra warnings inofensivos de ALSA/JACK/PortAudio
-CMD ["sh", "-c", "python -u main.py 2>&1 | grep -v -e 'ALSA lib' -e 'Cannot connect to server' -e 'jack server' -e 'JackShmReadWrite' -e 'capture slave' -e 'unable to open slave'"]
+CMD ["python", "-u", "main.py"]
