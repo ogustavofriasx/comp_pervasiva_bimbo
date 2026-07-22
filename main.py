@@ -195,4 +195,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except OSError as error:
+        if "No Default Input Device" in str(error):
+            print("Nenhum microfone encontrado.")
+            print("No macOS, rode fora do Docker: python main.py")
+            print("No Raspberry Pi, conecte o microfone USB e tente novamente.")
+            sys.exit(0)
+        raise
