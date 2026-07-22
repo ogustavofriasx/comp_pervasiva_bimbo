@@ -3,7 +3,7 @@
 #   docker compose -f compose.yaml -f compose.rpi.yaml up -d
 services:
   assistente:
-    volumes:
-      - ${XDG_RUNTIME_DIR:-/run/user/1000}/pulse:${XDG_RUNTIME_DIR:-/run/user/1000}/pulse:ro
+    devices:
+      - /dev/snd:/dev/snd
     group_add:
       - audio
