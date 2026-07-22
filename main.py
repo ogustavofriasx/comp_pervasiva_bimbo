@@ -1,12 +1,9 @@
 import io
-import json
 import os
 import re
 import sys
 import threading
 import time
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 
 # ─── Filtro de ruído ALSA/JACK/PortAudio ──────────────────────────
@@ -49,7 +46,7 @@ _stderr_thread.start()
 import speech_recognition as sr
 from openai import OpenAI
 
-from google_calendar import create_event
+from chatbot import run_chatbot
 
 # ─── Constantes ───────────────────────────────────────────────────
 WAKE_WORD = "oi bimbo"
@@ -82,153 +79,90 @@ def main():
     recognizer = sr.Recognizer()
     recognizer.energy_threshold = 300
     recognizer.dynamic_energy_threshold = True
-    recognizer.pause_threshold = 0.5    # menor = captura frases curtas melhor
+    recognizer.pause_threshold = 0.5
 
     with sr.Microphone() as source:
         print("Calibrando ruído ambiente...")
         recognizer.adjust_for_ambient_noise(source, duration=AMBIENT_DURATION)
         print(f"Pronto. Energia base: {recognizer.energy_threshold:.0f}")
 
+        # ── Loop principal: wake word → chatbot → repete ──
         while True:
-            print("Estou ouvindo...")
-            try:
-                audio = recognizer.listen(
-                    source,
-                    timeout=PHRASE_TIMEOUT,
-                    phrase_time_limit=3,
+            # ── Aguarda wake word ──
+            while True:
+                print("Estou ouvindo...")
+                try:
+                    audio = recognizer.listen(
+                        source,
+                        timeout=PHRASE_TIMEOUT,
+                        phrase_time_limit=3,
+                    )
+                    result = recognizer.recognize_google(
+                        audio, language="pt-BR", show_all=True,
+                    )
+                    transcripts = []
+                    if isinstance(result, dict):
+                        for alt in result.get("alternative", []):
+                            t = alt.get("transcript", "")
+                            if t:
+                                transcripts.append(t)
+                    elif isinstance(result, str):
+                        transcripts.append(result)
+
+                    if transcripts:
+                        print(f"  Ouvido: {transcripts[0]}")
+                except sr.WaitTimeoutError:
+                    continue
+                except sr.UnknownValueError:
+                    continue
+                except sr.RequestError as e:
+                    print("Falha no serviço de reconhecimento:", e)
+                    continue
+
+                if _contains_wake_word(transcripts):
+                    break
+
+            # ── Wake word detectada ──
+            print("Comando de ativação detectado")
+            print("Bimbo: Olá! Em que posso ajudar?")
+            time.sleep(WAKE_PAUSE)
+
+            client = _get_openai_client()
+
+            # ── Loop do chatbot ──
+            while True:
+                print("Estou ouvindo...")
+                try:
+                    audio = recognizer.listen(
+                        source,
+                        timeout=PHRASE_TIMEOUT,
+                        phrase_time_limit=8,
+                    )
+                except sr.WaitTimeoutError:
+                    print("Bimbo: Não ouvi nada. Ainda está aí?")
+                    continue
+
+                audio_file = io.BytesIO(audio.get_wav_data())
+                audio_file.name = "comando.wav"
+
+                transcription = client.audio.transcriptions.create(
+                    model="gpt-4o-mini-transcribe",
+                    file=audio_file,
+                    language="pt",
                 )
-                # Pede múltiplas hipóteses ao Google STT
-                result = recognizer.recognize_google(
-                    audio, language="pt-BR", show_all=True,
-                )
-                # result é um dict com "alternative": [{"transcript": ..., "confidence": ...}, ...]
-                # ou uma lista vazia / dict vazio se não reconhecer nada
-                transcripts = []
-                if isinstance(result, dict):
-                    for alt in result.get("alternative", []):
-                        t = alt.get("transcript", "")
-                        if t:
-                            transcripts.append(t)
-                elif isinstance(result, str):
-                    transcripts.append(result)
+                user_text = transcription.text.strip()
+                if not user_text:
+                    continue
 
-                if transcripts:
-                    print(f"  Ouvido: {transcripts[0]}")
-            except sr.WaitTimeoutError:
-                continue
-            except sr.UnknownValueError:
-                continue
-            except sr.RequestError as e:
-                print("Falha no serviço de reconhecimento:", e)
-                continue
+                print("Você:", user_text)
 
-            if _contains_wake_word(transcripts):
-                break
+                response_text, should_exit = run_chatbot(user_text, client)
+                print("Bimbo:", response_text)
 
-        # ── Wake word detectada ──
-        print("Comando de ativação detectado")
-        time.sleep(WAKE_PAUSE)
+                if should_exit:
+                    break
 
-        # ── Captura o comando (reutiliza mesmo mic) ──
-        print("Pode falar o comando...")
-        try:
-            audio = recognizer.listen(
-                source,
-                timeout=PHRASE_TIMEOUT,
-                phrase_time_limit=5,
-            )
-        except sr.WaitTimeoutError:
-            print("Nenhum comando detectado (timeout).")
-            return
-
-        # Transcreve com Whisper
-        client = _get_openai_client()
-        audio_file = io.BytesIO(audio.get_wav_data())
-        audio_file.name = "comando.wav"
-
-        transcription = client.audio.transcriptions.create(
-            model="gpt-4o-mini-transcribe",
-            file=audio_file,
-            language="pt",
-        )
-        texto = transcription.text
-        print("Comando:", texto)
-
-        _execute_command(client, texto)
-
-
-def _execute_command(client, command):
-    now = datetime.now(ZoneInfo("America/Sao_Paulo"))
-
-    prompt = f"""
-    Analise o comando abaixo e retorne somente um JSON válido.
-
-    Data e hora atuais:
-    {now.isoformat()}
-
-    Comando:
-    {command}
-
-    Regras:
-    - Não invente informações que não estejam no comando.
-    - Interprete palavras como "hoje", "amanhã" e dias da semana
-    usando a data atual informada.
-    - Caso a duração não seja informada, use 30 minutos.
-    - Caso a descrição não seja informada, use
-    "Evento criado pelo assistente de voz".
-    - Caso a data não seja informada, adicione "data" em "missingFields".
-    - Caso o horário não seja informado, adicione "horário" em "missingFields".
-    - Para informações ausentes, use null.
-    - Use o fuso horário "America/Sao_Paulo".
-    - Retorne somente JSON, sem Markdown ou explicações.
-    - IMPORTANTE: Se o comando não estiver em português ou for ininteligível,
-      retorne um JSON com "summary": "ininteligível" e "missingFields": ["comando"].
-
-    Formato esperado:
-    {{
-        "summary": "Título do evento",
-        "description": "Descrição do evento",
-        "start": {{
-            "dateTime": "2026-07-21T15:00:00-03:00",
-            "timeZone": "America/Sao_Paulo"
-        }},
-        "end": {{
-            "dateTime": "2026-07-21T15:30:00-03:00",
-            "timeZone": "America/Sao_Paulo"
-        }},
-        "missingFields": []
-    }}
-    """
-
-    response = client.responses.create(
-        model=os.environ.get("OPENAI_TEXT_MODEL", "gpt-5.6-luna"),
-        input=prompt,
-    )
-
-    print("Resposta bruta:", response.output_text)
-
-    try:
-        event_data = json.loads(response.output_text)
-    except json.JSONDecodeError as error:
-        print("O modelo não retornou um JSON válido.")
-        print("Erro:", error)
-        return
-
-    missing = event_data.get("missingFields", [])
-    if missing:
-        print(f"Comando incompleto — campos ausentes: {missing}")
-        print("Diga o comando novamente com data e horário.")
-        return
-
-    start = event_data.get("start", {})
-    if not start.get("dateTime"):
-        print("Evento sem data/hora — ignorado.")
-        return
-
-    try:
-        create_event(event_data)
-    except Exception as error:
-        print("Erro ao criar evento no Google Calendar:", error)
+            print("Chatbot encerrado. Diga 'oi bimbo' para ativar novamente.")
 
 
 if __name__ == "__main__":
