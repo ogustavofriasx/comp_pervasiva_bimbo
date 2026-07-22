@@ -15,14 +15,6 @@ services:
       GOOGLE_AUTH_URI: ${GOOGLE_AUTH_URI:-https://accounts.google.com/o/oauth2/auth}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost}
       GOOGLE_TOKEN_PATH: ${GOOGLE_TOKEN_PATH:-token.json}
-      # PulseAudio (host Linux)
       PULSE_SERVER: ${PULSE_SERVER:-unix:/run/user/1000/pulse/native}
-    devices:
-      - /dev/snd:/dev/snd
     volumes:
       - ./token.json:/data/token.json
-      # PulseAudio socket — só funciona em host Linux.
-      # No macOS, rode fora do Docker: python main.py
-      - ${XDG_RUNTIME_DIR:-/run/user/1000}/pulse:${XDG_RUNTIME_DIR:-/run/user/1000}/pulse:ro
-    group_add:
-      - audio
