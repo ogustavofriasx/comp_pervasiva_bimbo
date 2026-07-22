@@ -1,9 +1,0 @@
-# Configuração de áudio para Raspberry Pi (host Linux com ALSA/PulseAudio).
-# Use junto com compose.yaml:
-#   docker compose -f compose.yaml -f compose.rpi.yaml up -d
-services:
-  assistente:
-    devices:
-      - /dev/snd:/dev/snd
-    group_add:
-      - audio
