@@ -75,6 +75,7 @@ import speech_recognition as sr
 from openai import OpenAI
 
 from chatbot import run_chatbot
+from tts import speak_async
 
 # ─── Constantes ───────────────────────────────────────────────────
 WAKE_WORD = "oi bimbo"
@@ -195,6 +196,7 @@ def main():
 
                 response_text, should_exit = run_chatbot(user_text, client)
                 print("Bimbo:", response_text)
+                speak_async(response_text, client)
 
                 if should_exit:
                     break

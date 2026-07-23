@@ -19,11 +19,11 @@ ENV PATH="/opt/venv/bin:$PATH" \
     GOOGLE_TOKEN_PATH=/data/token.json
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates flac libasound2 libportaudio2 tzdata \
+    && apt-get install -y --no-install-recommends alsa-utils ca-certificates flac libasound2 libportaudio2 tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
-COPY main.py google_calendar.py chatbot.py ./
+COPY main.py google_calendar.py chatbot.py tts.py ./
 
 CMD ["python", "-u", "main.py"]
