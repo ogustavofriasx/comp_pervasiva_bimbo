@@ -184,11 +184,11 @@ def delete_event_by_keyword(keyword, max_results=20):
     return None
 
 
-def update_event_by_keyword(keyword, new_start, new_end, max_results=20):
-    """Atualiza data/hora do primeiro evento futuro que contenha a palavra-chave.
+def update_event_by_keyword(keyword, new_start=None, new_end=None,
+                            new_summary=None, new_description=None, max_results=20):
+    """Atualiza dados do primeiro evento futuro que contenha a palavra-chave.
 
-    Returns:
-        str: Nome do evento atualizado, ou None se não encontrado.
+    Todos os campos são opcionais — só atualiza o que for informado.
     """
     service = get_calendar_service()
     from datetime import datetime as dt
@@ -210,11 +210,17 @@ def update_event_by_keyword(keyword, new_start, new_end, max_results=20):
     for item in result.get("items", []):
         summary = item.get("summary", "")
         if keyword_lower in summary.casefold():
-            item["start"]["dateTime"] = new_start
-            item["end"]["dateTime"] = new_end
-            service.events().update(
+            if new_start:
+                item["start"]["dateTime"] = new_start
+            if new_end:
+                item["end"]["dateTime"] = new_end
+            if new_summary:
+                item["summary"] = new_summary
+            if new_description:
+                item["description"] = new_description
+            updated = service.events().update(
                 calendarId="primary", eventId=item["id"], body=item
             ).execute()
-            return summary
+            return updated.get("summary", summary)
 
     return None

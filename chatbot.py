@@ -88,9 +88,11 @@ def handle_message(user_text, client=None):
         "retorne APENAS:\n"
         '{"action":"list"}\n\n'
         "3. Se o usuário quer ALTERAR/MUDAR/EDITAR/REAGENDAR/ADIAR um evento "
-        "ou reunião, retorne APENAS o JSON com palavra-chave e NOVOS horários:\n"
-        '{"action":"update","keyword":"palavra-chave",'
-        '"start":"AAAA-MM-DDTHH:MM:00-03:00","end":"AAAA-MM-DDTHH:MM:00-03:00"}\n\n'
+        "ou reunião, retorne APENAS o JSON. Inclua APENAS os campos que vão mudar:\n"
+        '{"action":"update","keyword":"palavra-chave do título atual"'
+        ',"summary":"novo título (opcional)","description":"nova descrição (opcional)"'
+        ',"start":"AAAA-MM-DDTHH:MM:00-03:00 (opcional)"'
+        ',"end":"AAAA-MM-DDTHH:MM:00-03:00 (opcional)"}\n\n'
         "4. Se o usuário quer CANCELAR/DESMARCAR/REMOVER/DELETAR um evento "
         "ou reunião, retorne APENAS o JSON com a palavra-chave do evento:\n"
         '{"action":"delete","keyword":"palavra-chave do título"}\n\n'
@@ -142,11 +144,16 @@ def handle_message(user_text, client=None):
 
         if action == "update":
             keyword = data.get("keyword", "")
-            new_start = data.get("start", "")
-            new_end = data.get("end", "")
-            if not keyword or not new_start or not new_end:
-                return {"type": "chat", "text": "Não entendi qual evento ou o novo horário. Pode repetir?"}
-            return {"type": "update_event", "keyword": keyword, "start": new_start, "end": new_end}
+            if not keyword:
+                return {"type": "chat", "text": "Qual evento você quer alterar?"}
+            return {
+                "type": "update_event",
+                "keyword": keyword,
+                "start": data.get("start") or None,
+                "end": data.get("end") or None,
+                "summary": data.get("summary") or None,
+                "description": data.get("description") or None,
+            }
 
         if action == "delete":
             keyword = data.get("keyword", "")
@@ -199,15 +206,23 @@ def run_chatbot(user_text, client=None):
 
     if result["type"] == "update_event":
         keyword = result["keyword"]
-        print(f"Reagendando '{keyword}' para {result['start']}...")
+        changes = [k for k in ["summary", "description", "start"]
+                   if result.get(k)]
+        print(f"Atualizando '{keyword}': {changes}...")
         try:
-            updated = update_event_by_keyword(keyword, result["start"], result["end"])
+            updated = update_event_by_keyword(
+                keyword,
+                new_start=result.get("start"),
+                new_end=result.get("end"),
+                new_summary=result.get("summary"),
+                new_description=result.get("description"),
+            )
             if updated:
-                text = f"Evento '{updated}' reagendado com sucesso. Mais alguma coisa?"
+                text = f"Evento '{updated}' atualizado com sucesso. Mais alguma coisa?"
             else:
                 text = f"Não encontrei nenhum evento com '{keyword}'. Quer tentar com outro nome?"
         except Exception as e:
-            text = f"Erro ao reagendar: {e}."
+            text = f"Erro ao atualizar: {e}."
         _context.add("assistant", text)
         return text, False
 
