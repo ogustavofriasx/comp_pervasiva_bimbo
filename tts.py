@@ -12,6 +12,19 @@ from openai import OpenAI
 TTS_MODEL = os.environ.get("TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.environ.get("TTS_VOICE", "nova")
 
+# Evento que indica se o TTS está tocando áudio
+_busy = threading.Event()
+
+
+def is_speaking():
+    """Retorna True se o TTS ainda está tocando áudio."""
+    return _busy.is_set()
+
+
+def wait_silence(timeout=None):
+    """Bloqueia até o TTS terminar de falar."""
+    _busy.wait(timeout=timeout)
+
 
 def _get_client():
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -21,15 +34,12 @@ def _get_client():
 
 
 def _get_player():
-    """Retorna o comando do player de áudio nativo do sistema."""
     if sys.platform == "darwin":
         return ["afplay"]
-    # Linux / Raspberry Pi (ALSA)
     return ["aplay", "-q"]
 
 
 def _play_audio(audio_bytes):
-    """Toca os bytes de áudio usando o player nativo do sistema."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         f.write(audio_bytes)
         tmp_path = f.name
@@ -46,11 +56,9 @@ def _play_audio(audio_bytes):
 
 
 def speak(text, client=None):
-    """Converte texto em fala e toca o áudio (bloqueante).
-
-    Roda em thread separada pra não travar o loop principal.
-    """
+    """Converte texto em fala e toca o áudio (bloqueante)."""
     if not text:
+        _busy.clear()
         return
 
     if client is None:
@@ -65,12 +73,19 @@ def speak(text, client=None):
         )
         _play_audio(response.content)
     except Exception as e:
-        print(f"[TTS] Erro ao gerar fala: {e}")
+        print(f"[TTS] Erro: {e}")
+    finally:
+        _busy.clear()
 
 
 def speak_async(text, client=None):
-    """Versão não-bloqueante: toca o áudio em thread separada."""
+    """Dispara TTS em background. Enquanto gera/toca áudio, is_speaking()=True.
+
+    O caller deve esperar is_speaking()==False antes de abrir o microfone.
+    """
     if not text:
+        _busy.clear()
         return
+    _busy.set()
     thread = threading.Thread(target=speak, args=(text, client), daemon=True)
     thread.start()

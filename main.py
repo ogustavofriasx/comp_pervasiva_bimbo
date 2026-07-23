@@ -75,7 +75,7 @@ import speech_recognition as sr
 from openai import OpenAI
 
 from chatbot import run_chatbot
-from tts import speak_async
+from tts import is_speaking, speak_async
 
 # ─── Constantes ───────────────────────────────────────────────────
 WAKE_WORD = "oi bimbo"
@@ -160,15 +160,19 @@ def main():
             print("Comando de ativação detectado")
             client = _get_openai_client()
             greeting = "Olá! Em que posso ajudar?"
+            speak_async(greeting, client)  # dispara TTS antes do print
             print("Bimbo:", greeting)
-            speak_async(greeting, client)
             time.sleep(WAKE_PAUSE)
 
             # ── Loop do chatbot ──
-            # Aumenta a pausa pra não cortar frases longas
             recognizer.pause_threshold = CHAT_PAUSE_THRESHOLD
 
             while True:
+                # Espera o TTS terminar antes de abrir o microfone
+                # (evita que o assistente ouça a própria voz)
+                while is_speaking():
+                    time.sleep(0.1)
+
                 print("Estou ouvindo...")
                 try:
                     audio = recognizer.listen(
@@ -178,8 +182,8 @@ def main():
                     )
                 except sr.WaitTimeoutError:
                     prompt = "Não ouvi nada. Ainda está aí?"
-                    print("Bimbo:", prompt)
                     speak_async(prompt, client)
+                    print("Bimbo:", prompt)
                     time.sleep(2)
                     continue
 
@@ -198,8 +202,8 @@ def main():
                 print("Você:", user_text)
 
                 response_text, should_exit = run_chatbot(user_text, client)
+                speak_async(response_text, client)  # dispara TTS antes do print
                 print("Bimbo:", response_text)
-                speak_async(response_text, client)
 
                 if should_exit:
                     break
