@@ -47,6 +47,11 @@ def _filter_stderr():
         try:
             data = os.read(_pipe_read, 4096)
             if not data:
+                # EOF — escreve o que sobrou no buffer
+                if buf:
+                    text = buf.decode(errors="replace")
+                    if not _NOISE_PATTERN.search(text):
+                        os.write(_original_stderr_fd, (text + "\n").encode())
                 break
             buf += data
             while b"\n" in buf:
@@ -55,6 +60,10 @@ def _filter_stderr():
                 if not _NOISE_PATTERN.search(text):
                     os.write(_original_stderr_fd, (text + "\n").encode())
         except (OSError, ValueError):
+            if buf:
+                text = buf.decode(errors="replace")
+                if not _NOISE_PATTERN.search(text):
+                    os.write(_original_stderr_fd, text.encode())
             break
 
 
