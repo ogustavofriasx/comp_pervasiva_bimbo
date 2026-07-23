@@ -7,8 +7,8 @@ from openai import OpenAI
 
 from google_calendar import create_event
 
-# Palavras para encerrar o chatbot
-EXIT_KEYWORDS = ["tchau", "adeus", "sair", "encerrar", "fechar", "até logo", "até mais"]
+# Frases para encerrar o chatbot e voltar ao modo de espera
+EXIT_PHRASES = ["tchau bimbo", "tchau", "adeus", "sair", "encerrar", "até logo"]
 
 
 def _get_client():
@@ -20,7 +20,7 @@ def _get_client():
 
 def _should_exit(text):
     text = text.casefold().strip(".!? ")
-    return any(kw in text for kw in EXIT_KEYWORDS)
+    return any(phrase in text for phrase in EXIT_PHRASES)
 
 
 def handle_message(user_text, client=None):
@@ -60,7 +60,7 @@ def handle_message(user_text, client=None):
         "Descrição padrão: 'Evento criado pelo Bimbo' se não especificada.\n\n"
         "2. Para QUALQUER outra mensagem (conversa, pergunta, saudação), "
         "responda APENAS com texto natural em português.\n\n"
-        "3. Se o usuário pedir pra sair/parar/encerrar (tchau, adeus, etc), "
+        "3. Se o usuário disser 'tchau bimbo', 'tchau' ou se despedir, "
         "responda APENAS: {\"action\":\"exit\"}"
     )
 
