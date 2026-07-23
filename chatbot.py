@@ -2,6 +2,7 @@
 
 import json
 import os
+from collections import deque
 
 from openai import OpenAI
 
@@ -9,6 +10,37 @@ from google_calendar import create_event, delete_event_by_keyword, list_events, 
 
 # Frases para encerrar o chatbot e voltar ao modo de espera
 EXIT_PHRASES = ["tchau bimbo", "tchau", "adeus", "sair", "encerrar", "até logo"]
+
+# Contexto: últimas N mensagens (usuário + assistente)
+MAX_CONTEXT = 6
+
+
+class ChatContext:
+    """Histórico leve das últimas mensagens para dar contexto ao modelo."""
+
+    def __init__(self, max_messages=MAX_CONTEXT):
+        self._messages = deque(maxlen=max_messages)
+
+    def add(self, role, text):
+        self._messages.append({"role": role, "content": text})
+
+    def clear(self):
+        self._messages.clear()
+
+    def as_text(self):
+        """Retorna o histórico formatado para incluir no prompt."""
+        if not self._messages:
+            return ""
+        lines = ["[Conversa anterior:]"]
+        for msg in self._messages:
+            role = "Você" if msg["role"] == "user" else "Bimbo"
+            lines.append(f"{role}: {msg['content']}")
+        lines.append("")
+        return "\n".join(lines)
+
+
+# Contexto global da sessão
+_context = ChatContext()
 
 
 def _get_client():
@@ -27,15 +59,13 @@ def handle_message(user_text, client=None):
     """Processa uma mensagem do usuário.
 
     Returns:
-        dict com:
-          - type: "chat" | "schedule_event" | "exit"
-          - text: resposta em português (type=chat)
-          - event: dict do evento Google Calendar (type=schedule_event)
+        dict com type, text, event, keyword, etc.
     """
     if client is None:
         client = _get_client()
 
     if _should_exit(user_text):
+        _context.clear()
         return {"type": "exit", "text": "Até mais! Encerrando o assistente."}
 
     now_br = __import__("datetime").datetime.now(
@@ -71,20 +101,29 @@ def handle_message(user_text, client=None):
         "5. Para QUALQUER outra mensagem (conversa, pergunta, saudação), "
         "responda APENAS com texto natural em português.\n\n"
         "6. Se o usuário disser 'tchau bimbo', 'tchau' ou se despedir, "
-        "responda APENAS: {\"action\":\"exit\"}"
+        "responda APENAS: {\"action\":\"exit\"}\n\n"
+        "Use o contexto da conversa anterior para entender pronomes, "
+        "referências e manter coerência nas respostas."
     )
+
+    # Monta input com contexto
+    context_text = _context.as_text()
+    if context_text:
+        full_input = f"{context_text}[Mensagem atual]\n{user_text}"
+    else:
+        full_input = user_text
 
     text_model = os.environ.get("OPENAI_TEXT_MODEL", "gpt-5.6-luna")
 
     response = client.responses.create(
         model=text_model,
-        input=user_text,
+        input=full_input,
         instructions=system_prompt,
     )
 
     raw = response.output_text.strip()
 
-    # Tenta parse JSON (action = schedule ou exit)
+    # Parse JSON
     try:
         data = json.loads(raw)
         action = data.get("action", "")
@@ -119,24 +158,25 @@ def handle_message(user_text, client=None):
             return {"type": "list_events"}
 
         if action == "exit":
+            _context.clear()
             return {"type": "exit", "text": "Até mais! Encerrando o assistente."}
 
-        # JSON mas ação desconhecida
         return {"type": "chat", "text": raw}
 
     except json.JSONDecodeError:
-        # Resposta em texto natural
         return {"type": "chat", "text": raw}
 
 
 def run_chatbot(user_text, client=None):
     """Executa um turno do chatbot: processa mensagem e age conforme intenção.
 
-    Returns:
-        (response_text, should_exit: bool)
+    Mantém contexto da conversa automaticamente.
     """
     if client is None:
         client = _get_client()
+
+    # Adiciona mensagem do usuário ao contexto
+    _context.add("user", user_text)
 
     result = handle_message(user_text, client)
 
@@ -148,32 +188,28 @@ def run_chatbot(user_text, client=None):
         print("Agendando evento:", event.get("summary"))
         try:
             create_event(event)
-            return (
+            text = (
                 f"Prontinho! Reunião '{event.get('summary', 'sem título')}' "
-                "agendada com sucesso. Mais alguma coisa?",
-                False,
+                "agendada com sucesso. Mais alguma coisa?"
             )
         except Exception as e:
-            return f"Erro ao agendar: {e}. Tente novamente.", False
+            text = f"Erro ao agendar: {e}. Tente novamente."
+        _context.add("assistant", text)
+        return text, False
 
     if result["type"] == "update_event":
         keyword = result["keyword"]
-        new_start = result["start"]
-        new_end = result["end"]
-        print(f"Reagendando '{keyword}' para {new_start}...")
+        print(f"Reagendando '{keyword}' para {result['start']}...")
         try:
-            updated = update_event_by_keyword(keyword, new_start, new_end)
+            updated = update_event_by_keyword(keyword, result["start"], result["end"])
             if updated:
-                return (
-                    f"Evento '{updated}' reagendado com sucesso. Mais alguma coisa?",
-                    False,
-                )
-            return (
-                f"Não encontrei nenhum evento com '{keyword}'. Quer tentar com outro nome?",
-                False,
-            )
+                text = f"Evento '{updated}' reagendado com sucesso. Mais alguma coisa?"
+            else:
+                text = f"Não encontrei nenhum evento com '{keyword}'. Quer tentar com outro nome?"
         except Exception as e:
-            return f"Erro ao reagendar: {e}.", False
+            text = f"Erro ao reagendar: {e}."
+        _context.add("assistant", text)
+        return text, False
 
     if result["type"] == "delete_event":
         keyword = result["keyword"]
@@ -181,40 +217,38 @@ def run_chatbot(user_text, client=None):
         try:
             removed = delete_event_by_keyword(keyword)
             if removed:
-                return (
-                    f"Evento '{removed}' cancelado com sucesso. "
-                    "Mais alguma coisa?",
-                    False,
-                )
-            return (
-                f"Não encontrei nenhum evento com '{keyword}' "
-                "nos próximos dias. Quer tentar com outro nome?",
-                False,
-            )
+                text = f"Evento '{removed}' cancelado com sucesso. Mais alguma coisa?"
+            else:
+                text = f"Não encontrei nenhum evento com '{keyword}'. Quer tentar com outro nome?"
         except Exception as e:
-            return f"Erro ao cancelar: {e}.", False
+            text = f"Erro ao cancelar: {e}."
+        _context.add("assistant", text)
+        return text, False
 
     if result["type"] == "list_events":
         try:
             events = list_events()
             if not events:
-                return "Você não tem eventos próximos na agenda.", False
-
-            lines = ["Aqui estão seus próximos eventos:"]
-            for ev in events:
-                summary = ev["summary"]
-                start = ev["start"]
-                # Formata a data/hora de forma legível
-                try:
-                    from datetime import datetime as dt
-                    dt_start = dt.fromisoformat(start)
-                    formatted = dt_start.strftime("%d/%m às %H:%M")
-                except (ValueError, TypeError):
-                    formatted = start
-                lines.append(f"  • {summary} — {formatted}")
-            return "\n".join(lines), False
+                text = "Você não tem eventos próximos na agenda."
+            else:
+                lines = ["Aqui estão seus próximos eventos:"]
+                for ev in events:
+                    summary = ev["summary"]
+                    start = ev["start"]
+                    try:
+                        from datetime import datetime as dt
+                        dt_start = dt.fromisoformat(start)
+                        formatted = dt_start.strftime("%d/%m às %H:%M")
+                    except (ValueError, TypeError):
+                        formatted = start
+                    lines.append(f"  • {summary} — {formatted}")
+                text = "\n".join(lines)
         except Exception as e:
-            return f"Erro ao consultar a agenda: {e}.", False
+            text = f"Erro ao consultar a agenda: {e}."
+        _context.add("assistant", text)
+        return text, False
 
     # type == "chat"
-    return result.get("text", "Hmm, não entendi. Pode repetir?"), False
+    text = result.get("text", "Hmm, não entendi. Pode repetir?")
+    _context.add("assistant", text)
+    return text, False
