@@ -5,7 +5,7 @@ import os
 
 from openai import OpenAI
 
-from google_calendar import create_event
+from google_calendar import create_event, list_events
 
 # Frases para encerrar o chatbot e voltar ao modo de espera
 EXIT_PHRASES = ["tchau bimbo", "tchau", "adeus", "sair", "encerrar", "até logo"]
@@ -47,20 +47,23 @@ def handle_message(user_text, client=None):
         "Você conversa de forma natural, amigável e objetiva em português.\n\n"
         "REGRAS IMPORTANTES:\n"
         "1. Se o usuário quer MARCAR/AGENDAR/CRIAR uma reunião, evento, compromisso "
-        "ou lembrete no calendário, NÃO responda com texto. Em vez disso, retorne "
-        "APENAS um JSON no formato abaixo (sem markdown, sem explicação):\n\n"
+        "ou lembrete no calendário, retorne APENAS:\n"
         '{"action":"schedule","event":{'
         '"summary":"Título","description":"Descrição",'
         '"start":{"dateTime":"AAAA-MM-DDTHH:MM:00-03:00","timeZone":"America/Sao_Paulo"},'
         '"end":{"dateTime":"AAAA-MM-DDTHH:MM:00-03:00","timeZone":"America/Sao_Paulo"}'
         '}}\n\n'
+        "2. Se o usuário quer VER/LISTAR/CONSULTAR a agenda, eventos, "
+        "compromissos ou perguntar 'o que tenho hoje/amanhã/essa semana', "
+        "retorne APENAS:\n"
+        '{"action":"list"}\n\n'
         f"Data/hora atual: {now_br.isoformat()}\n"
         "Use essa data para interpretar 'hoje', 'amanhã', dias da semana.\n"
         "Duração padrão: 30 minutos se não especificada.\n"
         "Descrição padrão: 'Evento criado pelo Bimbo' se não especificada.\n\n"
-        "2. Para QUALQUER outra mensagem (conversa, pergunta, saudação), "
+        "3. Para QUALQUER outra mensagem (conversa, pergunta, saudação), "
         "responda APENAS com texto natural em português.\n\n"
-        "3. Se o usuário disser 'tchau bimbo', 'tchau' ou se despedir, "
+        "4. Se o usuário disser 'tchau bimbo', 'tchau' ou se despedir, "
         "responda APENAS: {\"action\":\"exit\"}"
     )
 
@@ -90,6 +93,9 @@ def handle_message(user_text, client=None):
                             "Pode repetir com mais detalhes?",
                 }
             return {"type": "schedule_event", "event": event}
+
+        if action == "list":
+            return {"type": "list_events"}
 
         if action == "exit":
             return {"type": "exit", "text": "Até mais! Encerrando o assistente."}
@@ -128,6 +134,28 @@ def run_chatbot(user_text, client=None):
             )
         except Exception as e:
             return f"Erro ao agendar: {e}. Tente novamente.", False
+
+    if result["type"] == "list_events":
+        try:
+            events = list_events()
+            if not events:
+                return "Você não tem eventos próximos na agenda.", False
+
+            lines = ["Aqui estão seus próximos eventos:"]
+            for ev in events:
+                summary = ev["summary"]
+                start = ev["start"]
+                # Formata a data/hora de forma legível
+                try:
+                    from datetime import datetime as dt
+                    dt_start = dt.fromisoformat(start)
+                    formatted = dt_start.strftime("%d/%m às %H:%M")
+                except (ValueError, TypeError):
+                    formatted = start
+                lines.append(f"  • {summary} — {formatted}")
+            return "\n".join(lines), False
+        except Exception as e:
+            return f"Erro ao consultar a agenda: {e}.", False
 
     # type == "chat"
     return result.get("text", "Hmm, não entendi. Pode repetir?"), False

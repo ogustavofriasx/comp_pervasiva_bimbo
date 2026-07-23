@@ -98,7 +98,6 @@ def get_calendar_service():
 
 
 def create_event(event):
-    # Validação: rejeita evento sem data/hora
     start = event.get("start", {})
     end = event.get("end", {})
     if not start.get("dateTime") or not end.get("dateTime"):
@@ -112,3 +111,40 @@ def create_event(event):
     created_event = service.events().insert(calendarId="primary", body=event).execute()
     print("Evento criado com sucesso.")
     print("Link:", created_event.get("htmlLink"))
+
+
+def list_events(max_results=10):
+    """Retorna os próximos eventos da agenda principal.
+
+    Returns:
+        list[dict]: Lista de eventos com summary, start, end, description.
+    """
+    from datetime import datetime as dt
+
+    service = get_calendar_service()
+    now = dt.utcnow().isoformat() + "Z"
+    result = (
+        service.events()
+        .list(
+            calendarId="primary",
+            timeMin=now,
+            maxResults=max_results,
+            singleEvents=True,
+            orderBy="startTime",
+        )
+        .execute()
+    )
+
+    events = []
+    for item in result.get("items", []):
+        start = item["start"].get("dateTime", item["start"].get("date"))
+        end = item["end"].get("dateTime", item["end"].get("date"))
+        events.append(
+            {
+                "summary": item.get("summary", "Sem título"),
+                "description": item.get("description", ""),
+                "start": start,
+                "end": end,
+            }
+        )
+    return events
