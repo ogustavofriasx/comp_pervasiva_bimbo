@@ -6,3 +6,4 @@ audios
 
 .env
 .DS_Store
+venv/
