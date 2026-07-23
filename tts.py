@@ -10,7 +10,7 @@ from openai import OpenAI
 
 # Modelo e voz
 TTS_MODEL = os.environ.get("TTS_MODEL", "gpt-4o-mini-tts")
-TTS_VOICE = os.environ.get("TTS_VOICE", "nova")
+TTS_VOICE = os.environ.get("TTS_VOICE", "onyx")
 
 # Evento que indica se o TTS está tocando áudio
 _busy = threading.Event()
