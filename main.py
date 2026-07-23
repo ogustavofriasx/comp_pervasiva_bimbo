@@ -84,8 +84,9 @@ PHRASE_TIMEOUT = 5
 WAKE_PAUSE = 0.3
 
 # Thresholds para o chatbot (frases longas descrevendo reuniões)
-CHAT_PAUSE_THRESHOLD = 1.2   # pausa maior = não corta no meio da fala
-CHAT_PHRASE_TIME_LIMIT = 15  # até 15s de fala contínua
+CHAT_TIMEOUT = 10           # espera até 10s pelo início da fala
+CHAT_PAUSE_THRESHOLD = 1.2  # pausa maior = não corta no meio da fala
+CHAT_PHRASE_TIME_LIMIT = 15 # até 15s de fala contínua
 
 
 def _contains_wake_word(transcripts):
@@ -170,11 +171,12 @@ def main():
                 try:
                     audio = recognizer.listen(
                         source,
-                        timeout=PHRASE_TIMEOUT,
+                        timeout=CHAT_TIMEOUT,
                         phrase_time_limit=CHAT_PHRASE_TIME_LIMIT,
                     )
                 except sr.WaitTimeoutError:
                     print("Bimbo: Não ouvi nada. Ainda está aí?")
+                    time.sleep(2)
                     continue
 
                 audio_file = io.BytesIO(audio.get_wav_data())
