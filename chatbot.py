@@ -5,7 +5,7 @@ import os
 
 from openai import OpenAI
 
-from google_calendar import create_event, list_events
+from google_calendar import create_event, delete_event_by_keyword, list_events
 
 # Frases para encerrar o chatbot e voltar ao modo de espera
 EXIT_PHRASES = ["tchau bimbo", "tchau", "adeus", "sair", "encerrar", "até logo"]
@@ -57,13 +57,16 @@ def handle_message(user_text, client=None):
         "compromissos ou perguntar 'o que tenho hoje/amanhã/essa semana', "
         "retorne APENAS:\n"
         '{"action":"list"}\n\n'
+        "3. Se o usuário quer CANCELAR/DESMARCAR/REMOVER/DELETAR um evento "
+        "ou reunião, retorne APENAS o JSON com a palavra-chave do evento:\n"
+        '{"action":"delete","keyword":"palavra-chave do título"}\n\n'
         f"Data/hora atual: {now_br.isoformat()}\n"
         "Use essa data para interpretar 'hoje', 'amanhã', dias da semana.\n"
         "Duração padrão: 30 minutos se não especificada.\n"
         "Descrição padrão: 'Evento criado pelo Bimbo' se não especificada.\n\n"
-        "3. Para QUALQUER outra mensagem (conversa, pergunta, saudação), "
+        "4. Para QUALQUER outra mensagem (conversa, pergunta, saudação), "
         "responda APENAS com texto natural em português.\n\n"
-        "4. Se o usuário disser 'tchau bimbo', 'tchau' ou se despedir, "
+        "5. Se o usuário disser 'tchau bimbo', 'tchau' ou se despedir, "
         "responda APENAS: {\"action\":\"exit\"}"
     )
 
@@ -93,6 +96,12 @@ def handle_message(user_text, client=None):
                             "Pode repetir com mais detalhes?",
                 }
             return {"type": "schedule_event", "event": event}
+
+        if action == "delete":
+            keyword = data.get("keyword", "")
+            if not keyword:
+                return {"type": "chat", "text": "Qual evento você quer cancelar?"}
+            return {"type": "delete_event", "keyword": keyword}
 
         if action == "list":
             return {"type": "list_events"}
@@ -134,6 +143,25 @@ def run_chatbot(user_text, client=None):
             )
         except Exception as e:
             return f"Erro ao agendar: {e}. Tente novamente.", False
+
+    if result["type"] == "delete_event":
+        keyword = result["keyword"]
+        print(f"Cancelando evento com '{keyword}'...")
+        try:
+            removed = delete_event_by_keyword(keyword)
+            if removed:
+                return (
+                    f"Evento '{removed}' cancelado com sucesso. "
+                    "Mais alguma coisa?",
+                    False,
+                )
+            return (
+                f"Não encontrei nenhum evento com '{keyword}' "
+                "nos próximos dias. Quer tentar com outro nome?",
+                False,
+            )
+        except Exception as e:
+            return f"Erro ao cancelar: {e}.", False
 
     if result["type"] == "list_events":
         try:

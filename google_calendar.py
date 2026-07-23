@@ -8,7 +8,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 
-SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 # Ambiente
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
@@ -148,3 +148,37 @@ def list_events(max_results=10):
             }
         )
     return events
+
+
+def delete_event_by_keyword(keyword, max_results=20):
+    """Remove o primeiro evento futuro que contenha a palavra-chave no título.
+
+    Returns:
+        str: Nome do evento removido, ou None se não encontrado.
+    """
+    service = get_calendar_service()
+    from datetime import datetime as dt
+
+    now = dt.utcnow().isoformat() + "Z"
+    result = (
+        service.events()
+        .list(
+            calendarId="primary",
+            timeMin=now,
+            maxResults=max_results,
+            singleEvents=True,
+            orderBy="startTime",
+        )
+        .execute()
+    )
+
+    keyword_lower = keyword.casefold()
+    for item in result.get("items", []):
+        summary = item.get("summary", "")
+        if keyword_lower in summary.casefold():
+            service.events().delete(
+                calendarId="primary", eventId=item["id"]
+            ).execute()
+            return summary
+
+    return None
