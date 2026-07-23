@@ -6,6 +6,25 @@ import threading
 import time
 
 
+# ─── Carrega .env (necessário fora do Docker) ─────────────────────
+def _load_dotenv(path=".env"):
+    """Carrega variáveis de um arquivo .env sem dependências externas."""
+    if not os.path.exists(path):
+        return
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip("\"'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_dotenv()
+
+
 # ─── Filtro de ruído ALSA/JACK/PortAudio ──────────────────────────
 _NOISE_PATTERN = re.compile(
     r"(ALSA lib|Cannot connect to server|jack server|JackShmReadWrite|"
