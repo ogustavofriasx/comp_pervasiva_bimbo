@@ -5,7 +5,7 @@ import os
 
 from openai import OpenAI
 
-from google_calendar import create_event, delete_event_by_keyword, list_events
+from google_calendar import create_event, delete_event_by_keyword, list_events, update_event_by_keyword
 
 # Frases para encerrar o chatbot e voltar ao modo de espera
 EXIT_PHRASES = ["tchau bimbo", "tchau", "adeus", "sair", "encerrar", "até logo"]
@@ -57,16 +57,20 @@ def handle_message(user_text, client=None):
         "compromissos ou perguntar 'o que tenho hoje/amanhã/essa semana', "
         "retorne APENAS:\n"
         '{"action":"list"}\n\n'
-        "3. Se o usuário quer CANCELAR/DESMARCAR/REMOVER/DELETAR um evento "
+        "3. Se o usuário quer ALTERAR/MUDAR/EDITAR/REAGENDAR/ADIAR um evento "
+        "ou reunião, retorne APENAS o JSON com palavra-chave e NOVOS horários:\n"
+        '{"action":"update","keyword":"palavra-chave",'
+        '"start":"AAAA-MM-DDTHH:MM:00-03:00","end":"AAAA-MM-DDTHH:MM:00-03:00"}\n\n'
+        "4. Se o usuário quer CANCELAR/DESMARCAR/REMOVER/DELETAR um evento "
         "ou reunião, retorne APENAS o JSON com a palavra-chave do evento:\n"
         '{"action":"delete","keyword":"palavra-chave do título"}\n\n'
         f"Data/hora atual: {now_br.isoformat()}\n"
         "Use essa data para interpretar 'hoje', 'amanhã', dias da semana.\n"
         "Duração padrão: 30 minutos se não especificada.\n"
         "Descrição padrão: 'Evento criado pelo Bimbo' se não especificada.\n\n"
-        "4. Para QUALQUER outra mensagem (conversa, pergunta, saudação), "
+        "5. Para QUALQUER outra mensagem (conversa, pergunta, saudação), "
         "responda APENAS com texto natural em português.\n\n"
-        "5. Se o usuário disser 'tchau bimbo', 'tchau' ou se despedir, "
+        "6. Se o usuário disser 'tchau bimbo', 'tchau' ou se despedir, "
         "responda APENAS: {\"action\":\"exit\"}"
     )
 
@@ -96,6 +100,14 @@ def handle_message(user_text, client=None):
                             "Pode repetir com mais detalhes?",
                 }
             return {"type": "schedule_event", "event": event}
+
+        if action == "update":
+            keyword = data.get("keyword", "")
+            new_start = data.get("start", "")
+            new_end = data.get("end", "")
+            if not keyword or not new_start or not new_end:
+                return {"type": "chat", "text": "Não entendi qual evento ou o novo horário. Pode repetir?"}
+            return {"type": "update_event", "keyword": keyword, "start": new_start, "end": new_end}
 
         if action == "delete":
             keyword = data.get("keyword", "")
@@ -143,6 +155,25 @@ def run_chatbot(user_text, client=None):
             )
         except Exception as e:
             return f"Erro ao agendar: {e}. Tente novamente.", False
+
+    if result["type"] == "update_event":
+        keyword = result["keyword"]
+        new_start = result["start"]
+        new_end = result["end"]
+        print(f"Reagendando '{keyword}' para {new_start}...")
+        try:
+            updated = update_event_by_keyword(keyword, new_start, new_end)
+            if updated:
+                return (
+                    f"Evento '{updated}' reagendado com sucesso. Mais alguma coisa?",
+                    False,
+                )
+            return (
+                f"Não encontrei nenhum evento com '{keyword}'. Quer tentar com outro nome?",
+                False,
+            )
+        except Exception as e:
+            return f"Erro ao reagendar: {e}.", False
 
     if result["type"] == "delete_event":
         keyword = result["keyword"]
