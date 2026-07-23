@@ -158,10 +158,11 @@ def main():
 
             # ── Wake word detectada ──
             print("Comando de ativação detectado")
-            print("Bimbo: Olá! Em que posso ajudar?")
-            time.sleep(WAKE_PAUSE)
-
             client = _get_openai_client()
+            greeting = "Olá! Em que posso ajudar?"
+            print("Bimbo:", greeting)
+            speak_async(greeting, client)
+            time.sleep(WAKE_PAUSE)
 
             # ── Loop do chatbot ──
             # Aumenta a pausa pra não cortar frases longas
@@ -176,7 +177,9 @@ def main():
                         phrase_time_limit=CHAT_PHRASE_TIME_LIMIT,
                     )
                 except sr.WaitTimeoutError:
-                    print("Bimbo: Não ouvi nada. Ainda está aí?")
+                    prompt = "Não ouvi nada. Ainda está aí?"
+                    print("Bimbo:", prompt)
+                    speak_async(prompt, client)
                     time.sleep(2)
                     continue
 
