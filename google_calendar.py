@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -67,7 +68,11 @@ def get_calendar_service():
 
     # 1. Tenta carregar token salvo em disco (versão mais recente após refresh)
     if os.path.exists(TOKEN_PATH):
-        creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+        if os.path.isdir(TOKEN_PATH):
+            # Docker cria diretório vazio pro volume — remove e ignora
+            shutil.rmtree(TOKEN_PATH, ignore_errors=True)
+        else:
+            creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
 
     # 2. Fallback: monta credenciais a partir do .env
     if not creds:
